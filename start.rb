@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
+
 require 'erb'
 require 'excon'
 require 'logger'
@@ -23,9 +25,9 @@ module Service
     end
 
     def ensure_directories
-      %w{lib run log}.each do |dir|
+      %w[lib run log].each do |dir|
         path = "/var/#{dir}/#{service_name}"
-        Dir.mkdir(path) unless Dir.exists?(path)
+        Dir.mkdir(path) unless Dir.exist?(path)
       end
     end
 
@@ -43,11 +45,11 @@ module Service
 
     def stop
       $logger.info "stopping #{service_name} on port #{port}"
-      if File.exists?(pid_file)
+      if File.exist?(pid_file)
         pid = File.read(pid_file).strip
         begin
           self.class.kill(pid.to_i)
-        rescue => e
+        rescue StandardError => e
           $logger.warn "couldn't kill #{service_name} on port #{port}: #{e.message}"
         end
       else
@@ -55,16 +57,16 @@ module Service
       end
     end
 
-    def self.kill(pid, signal='SIGINT')
+    def self.kill(pid, signal = 'SIGINT')
       Process.kill(signal, pid)
     end
 
     def self.fire_and_forget(*args)
       $logger.debug "running: #{args.join(' ')}"
       pid = Process.fork
-      if pid.nil? then
+      if pid.nil?
         # In child
-        exec args.join(" ")
+        exec args.join(' ')
       else
         # In parent
         Process.detach(pid)
@@ -73,21 +75,20 @@ module Service
 
     def self.which(executable)
       path = `which #{executable}`.strip
-      if path == ""
-        return nil
+      if path == ''
+        nil
       else
-        return path
+        path
       end
     end
   end
-
 
   class Tor < Base
     attr_reader :port, :control_port
 
     def initialize(port, control_port)
-        @port = port
-        @control_port = control_port
+      @port = port
+      @control_port = control_port
     end
 
     def data_directory
@@ -96,29 +97,33 @@ module Service
 
     def start
       super
-      self.class.fire_and_forget(executable,
+      self.class.fire_and_forget(
+        executable,
         "--SocksPort #{port}",
-	"--ControlPort #{control_port}",
-        "--NewCircuitPeriod 15",
-	"--MaxCircuitDirtiness 15",
-	"--UseEntryGuards 0",
-	"--UseEntryGuardsAsDirGuards 0",
-	"--CircuitBuildTimeout 5",
-	"--ExitRelay 0",
-	"--RefuseUnknownExits 0",
-	"--ClientOnly 1",
-	"--AllowSingleHopCircuits 1",
+        "--ControlPort #{control_port}",
+        '--NewCircuitPeriod 15',
+        '--MaxCircuitDirtiness 15',
+        '--UseEntryGuards 0',
+        '--UseEntryGuardsAsDirGuards 0',
+        '--CircuitBuildTimeout 5',
+        '--ExitRelay 0',
+        '--RefuseUnknownExits 0',
+        '--ClientOnly 1',
+        '--AllowSingleHopCircuits 1',
         "--DataDirectory #{data_directory}",
         "--PidFile #{pid_file}",
-        "--Log \"warn syslog\"",
+        '--Log "warn syslog"',
         '--RunAsDaemon 1',
-        "| logger -t 'tor' 2>&1")
+        "| logger -t 'tor' 2>&1"
+      )
     end
 
     def newnym
-        self.class.fire_and_forget('/usr/local/bin/newnym.sh',
-				   "#{control_port}",
-				   "| logger -t 'newnym'")
+      self.class.fire_and_forget(
+        '/usr/local/bin/newnym.sh',
+        control_port.to_s,
+        "| logger -t 'newnym'"
+      )
     end
   end
 
@@ -131,26 +136,26 @@ module Service
     def start
       super
       # https://gitweb.torproject.org/torbrowser.git/blob_plain/1ffcd9dafb9dd76c3a29dd686e05a71a95599fb5:/build-scripts/config/polipo.conf
-      if File.exists?(pid_file)
-        File.delete(pid_file)
-      end
-      self.class.fire_and_forget(executable,
+      File.delete(pid_file) if File.exist?(pid_file)
+      self.class.fire_and_forget(
+        executable,
         "proxyPort=#{port}",
         "socksParentProxy=127.0.0.1:#{tor_port}",
-        "socksProxyType=socks5",
+        'socksProxyType=socks5',
         "diskCacheRoot=''",
-        "disableLocalInterface=true",
-        "allowedClients=127.0.0.1",
+        'disableLocalInterface=true',
+        'allowedClients=127.0.0.1',
         "localDocumentRoot=''",
-        "disableConfiguration=true",
+        'disableConfiguration=true',
         "dnsUseGethostbyname='yes'",
-        "logSyslog=true",
-        "daemonise=true",
+        'logSyslog=true',
+        'daemonise=true',
         "pidFile=#{pid_file}",
-        "disableVia=true",
+        'disableVia=true',
         "allowedPorts='1-65535'",
         "tunnelAllowedPorts='1-65535'",
-        "| logger -t 'polipo' 2>&1")
+        "| logger -t 'polipo' 2>&1"
+      )
     end
 
     def tor_port
@@ -187,25 +192,25 @@ module Service
     end
 
     def tor_port
-      10000 + id
+      10_000 + id
     end
 
     def tor_control_port
-      30000 + id
+      30_000 + id
     end
 
     def polipo_port
-      tor_port + 10000
+      tor_port + 10_000
     end
-    alias_method :port, :polipo_port
+    alias port polipo_port
 
     def test_url
       ENV['test_url'] || 'http://icanhazip.com'
     end
 
     def working?
-      Excon.get(test_url, proxy: "http://127.0.0.1:#{port}", :read_timeout => 10).status == 200
-    rescue
+      Excon.get(test_url, proxy: "http://127.0.0.1:#{port}", read_timeout: 10).status == 200
+    rescue StandardError
       false
     end
   end
@@ -214,8 +219,8 @@ module Service
     attr_reader :backends
 
     def initialize(port = 5566)
-      @config_erb_path = "/usr/local/etc/haproxy.cfg.erb"
-      @config_path = "/usr/local/etc/haproxy.cfg"
+      @config_erb_path = '/usr/local/etc/haproxy.cfg.erb'
+      @config_path = '/usr/local/etc/haproxy.cfg'
       @backends = []
       super(port)
     end
@@ -223,24 +228,29 @@ module Service
     def start
       super
       compile_config
-      self.class.fire_and_forget(executable,
+      self.class.fire_and_forget(
+        executable,
         "-f #{@config_path}",
-        "| logger 2>&1")
+        '| logger 2>&1'
+      )
     end
 
     def soft_reload
-      self.class.fire_and_forget(executable,
+      self.class.fire_and_forget(
+        executable,
         "-f #{@config_path}",
         "-p #{pid_file}",
         "-sf #{File.read(pid_file)}",
-        "| logger 2>&1")
+        '| logger 2>&1'
+      )
     end
 
     def add_backend(backend)
-      @backends << {:name => 'tor', :addr => '127.0.0.1', :port => backend.port}
+      @backends << { name: 'tor', addr: '127.0.0.1', port: backend.port }
     end
 
     private
+
     def compile_config
       File.write(@config_path, ERB.new(File.read(@config_erb_path)).result(binding))
     end
@@ -263,18 +273,18 @@ haproxy.start
 sleep 60
 
 loop do
-  $logger.info "resetting circuits"
+  $logger.info 'resetting circuits'
   proxies.each do |proxy|
     $logger.info "reset nym for #{proxy.id} (port #{proxy.port})"
     proxy.tor.newnym
   end
 
-  $logger.info "testing proxies"
+  $logger.info 'testing proxies'
   proxies.each do |proxy|
     $logger.info "testing proxy #{proxy.id} (port #{proxy.port})"
     proxy.restart unless proxy.working?
   end
 
-  $logger.info "sleeping for 60 seconds"
+  $logger.info 'sleeping for 60 seconds'
   sleep 60
 end
